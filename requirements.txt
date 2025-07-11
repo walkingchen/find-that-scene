@@ -1,0 +1,13 @@
+scenedetect
+ffmpeg-python
+faiss-cpu
+torch
+torchvision
+ftfy
+regex
+tqdm
+opencv-python
+openai-clip
+fastapi
+uvicorn
+gradio
