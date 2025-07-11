@@ -24,7 +24,7 @@ FAISS_INDEX_FILE = os.path.join(EMBEDDINGS_DIR, "faiss.index")
 def find_scenes(video_path):
     video = open_video(video_path)
     scene_manager = SceneManager()
-    scene_manager.add_detector(ContentDetector())
+    scene_manager.add_detector(ContentDetector(threshold=45, min_scene_len=30))
     scene_manager.detect_scenes(video, show_progress=True)
     return scene_manager.get_scene_list()
 
