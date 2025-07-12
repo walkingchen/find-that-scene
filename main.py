@@ -14,7 +14,10 @@ EMBEDDINGS_DIR = "embeddings"
 SCENES_DIR = "scenes"
 IMAGE_EMBEDDINGS_FILE = os.path.join(EMBEDDINGS_DIR, "image_embeddings.npy")
 IMAGE_FILENAMES_FILE = os.path.join(EMBEDDINGS_DIR, "image_filenames.json")
+VIDEO_SOURCES_FILE = os.path.join(EMBEDDINGS_DIR, "video_sources.json")
 FAISS_INDEX_FILE = os.path.join(EMBEDDINGS_DIR, "faiss.index")
+TIMECODES_FILE = os.path.join(EMBEDDINGS_DIR, "scene_timecodes.json")
+METADATA_FILE = os.path.join(EMBEDDINGS_DIR, "metadata.json")
 TOP_K = 3  # Number of results to return
 
 # --- FastAPI App ---
@@ -34,19 +37,25 @@ clip_model = None
 clip_preprocess = None
 faiss_index = None
 image_filenames = None
+scene_timecodes = None
+video_sources = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # --- Models ---
 class SearchResult(BaseModel):
     scene_id: int
-    filename: str
-    video_url: str
+    keyframe_filename: str
+    keyframe_path: str
+    source_video_filename: str
+    start_time: float
+    end_time: float
     score: float
+    video_path: str
 
 # --- Lifespan Events ---
 @app.on_event("startup")
 def startup_event():
-    global clip_model, clip_preprocess, faiss_index, image_filenames
+    global clip_model, clip_preprocess, faiss_index, image_filenames, scene_timecodes, video_sources
     
     print("Loading models and data...")
     
@@ -66,7 +75,21 @@ def startup_event():
     with open(IMAGE_FILENAMES_FILE, 'r') as f:
         image_filenames = json.load(f)
     print("Image filenames loaded.")
+
+    # Load scene timecodes
+    if not os.path.exists(TIMECODES_FILE):
+        raise HTTPException(status_code=500, detail="Scene timecodes not found.")
+    with open(TIMECODES_FILE, 'r') as f:
+        scene_timecodes = json.load(f)
+    print("Scene timecodes loaded.")
     
+    # Load video sources
+    if not os.path.exists(VIDEO_SOURCES_FILE):
+        raise HTTPException(status_code=500, detail="Video sources file not found.")
+    with open(VIDEO_SOURCES_FILE, 'r') as f:
+        video_sources = json.load(f)
+    print("Video sources loaded.")
+
     print("Startup complete.")
 
 # --- API Endpoints ---
@@ -91,21 +114,31 @@ def search(query: str):
     results = []
     for i in range(len(indices[0])):
         idx = indices[0][i]
-        filename = image_filenames[idx]
-        scene_num = int(filename.replace("scene_", "").replace(".jpg", ""))
-        video_filename = f"scene_{scene_num:03d}.mp4"
         
+        # Filename now includes the video name (e.g., "video_name/scene_001.jpg")
+        full_keyframe_path = image_filenames[idx]
+        video_name, keyframe_filename = os.path.split(full_keyframe_path)
+        scene_key = os.path.splitext(keyframe_filename)[0]
+        scene_num = int(scene_key.replace("scene_", ""))
+
+        # Look up timecodes in the nested dictionary
+        start_time, end_time = scene_timecodes.get(video_name, {}).get(scene_key, (0, 0))
+        
+        source_filename = video_sources[idx]
+        video_path = os.path.join("video", source_filename)
+
         result = SearchResult(
             scene_id=scene_num,
-            filename=filename,
-            video_url=f"/{SCENES_DIR}/{video_filename}",
-            score=float(distances[0][i])
+            keyframe_filename=keyframe_filename,
+            keyframe_path=os.path.join(SCENES_DIR, full_keyframe_path),
+            source_video_filename=source_filename,
+            start_time=start_time,
+            end_time=end_time,
+            score=float(distances[0][i]),
+            video_path=video_path
         )
         results.append(result)
         
     return results
-
-# Mount static files directory
-app.mount(f"/{SCENES_DIR}", StaticFiles(directory=SCENES_DIR), name="scenes")
 
 # --- To run the app: uvicorn main:app --reload ---
