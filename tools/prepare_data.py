@@ -224,7 +224,8 @@ if __name__ == "__main__":
 
         video_paths = []
         for ext in SUPPORTED_VIDEO_EXTENSIONS:
-            video_paths.extend(glob.glob(os.path.join(args.folder, ext)))
+            search_pattern = os.path.join(glob.escape(args.folder), '**', ext)
+            video_paths.extend(glob.glob(search_pattern, recursive=True))
         
         if not video_paths:
             print("No video files found in the specified folder.")
